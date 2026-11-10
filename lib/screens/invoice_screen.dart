@@ -390,44 +390,98 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   bool _loading = true;
   bool _working = false;
   bool _returned = false;
+  Map<int, double> _remainingToReturn = {};
   @override
   void initState() { super.initState(); _load(); }
   Future<void> _load() async {
     final invoice = await DatabaseHelper.instance.getInvoice(widget.invoiceId);
     final items = await DatabaseHelper.instance.getInvoiceItems(widget.invoiceId);
-    final returned = await DatabaseHelper.instance.hasInvoiceReturn(widget.invoiceId);
+    final remaining = await DatabaseHelper.instance.getInvoiceReturnStatus(widget.invoiceId);
     if (!mounted) return;
-    setState(() { _invoice = invoice; _items = items; _returned = returned; _loading = false; });
+    setState(() {
+      _invoice = invoice;
+      _items = items;
+      _remainingToReturn = remaining;
+      _returned = remaining.isNotEmpty && remaining.values.every((value) => value <= 0.0000001);
+      _loading = false;
+    });
   }
   Future<void> _returnInvoice() async {
     final invoice = _invoice;
     if (invoice == null || _returned || _working) return;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('ثبت برگشت کامل فاکتور'),
-        content: Text(
-          'برای فاکتور ${invoice['invoice_number']} برگشت کامل ثبت می‌شود. '
-          'فاکتور اصلی حذف یا تغییر نمی‌کند و موجودی اقلام به انبار برمی‌گردد. '
-          'این عملیات فقط یک‌بار برای هر فاکتور انجام می‌شود. ادامه می‌دهید؟',
+    final controllers = <int, TextEditingController>{
+      for (final item in _items)
+        (item['id'] as int): TextEditingController(
+          text: NumberFormatHelper.quantity(_remainingToReturn[item['id'] as int] ?? 0),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('انصراف')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('ثبت برگشت')),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
-    setState(() => _working = true);
+    };
     try {
+      final quantities = await showDialog<Map<int, double>>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('ثبت برگشت کامل یا جزئی'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 420,
+            child: ListView(
+              children: [
+                Text('فاکتور ${invoice['invoice_number']} — مقدار برگشتی را برای هر قلم وارد کنید. برای قلمی که برگشت ندارد، مقدار را صفر یا خالی بگذارید.'),
+                const SizedBox(height: 12),
+                for (final item in _items) ...[
+                  Text('${item['product_name']} • ${item['unit']}'),
+                  Text('مقدار باقی‌مانده برای برگشت: ${NumberFormatHelper.quantity(_remainingToReturn[item['id'] as int] ?? 0)}'),
+                  TextField(
+                    controller: controllers[item['id'] as int],
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'مقدار برگشتی در این نوبت'),
+                  ),
+                  const Divider(),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
+            FilledButton(
+              onPressed: () {
+                final selected = <int, double>{};
+                for (final item in _items) {
+                  final id = item['id'] as int;
+                  final raw = controllers[id]!.text.trim();
+                  final quantity = raw.isEmpty ? 0.0 : (double.tryParse(raw.replaceAll(',', '')) ?? -1);
+                  final remaining = _remainingToReturn[id] ?? 0;
+                  if (quantity < 0 || quantity > remaining + 0.0000001) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(content: Text('مقدار برگشت برای ${item['product_name']} معتبر نیست.')),
+                    );
+                    return;
+                  }
+                  if (quantity > 0) selected[id] = quantity;
+                }
+                if (selected.isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(content: Text('مقدار برگشت را برای حداقل یک قلم وارد کنید.')),
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext, selected);
+              },
+              child: const Text('ادامه و ثبت برگشت'),
+            ),
+          ],
+        ),
+      );
+      if (quantities == null || !mounted) return;
+      setState(() => _working = true);
       await DatabaseHelper.instance.returnInvoice(
         widget.invoiceId,
         date: PersianDateHelper.today(),
+        itemQuantities: quantities,
       );
       await _load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('برگشت کامل ثبت شد؛ فاکتور اصلی حفظ شده است.')),
+          const SnackBar(content: Text('برگشت اقلام ثبت شد؛ فاکتور اصلی حفظ شده است.')),
         );
       }
     } catch (error) {
@@ -437,6 +491,9 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
         );
       }
     } finally {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
       if (mounted) setState(() => _working = false);
     }
   }
@@ -550,14 +607,14 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
             if (_returned)
               const ListTile(
                 leading: Icon(Icons.assignment_returned_outlined),
-                title: Text('برگشت کامل ثبت شده'),
-                subtitle: Text('فاکتور اصلی حفظ شده و موجودی به انبار برگشته است.'),
+                title: Text('تمام اقلام فاکتور برگشت شده‌اند'),
+                subtitle: Text('فاکتور اصلی حفظ شده و مقدار برگشتی در انبار ثبت شده است.'),
               )
             else
               OutlinedButton.icon(
                 onPressed: _working ? null : _returnInvoice,
                 icon: const Icon(Icons.assignment_returned_outlined),
-                label: const Text('ثبت برگشت کامل فاکتور'),
+                label: const Text('ثبت برگشت کالاها (کامل یا جزئی)'),
               ),
 
             if (_working) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),

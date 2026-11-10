@@ -52,7 +52,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
     for (final row in all) {
       final date = row['date'] as String;
       final type = row['type'] as String;
-      final createdBy = row['created_by'] as String?;
       final amount = (row['quantity'] as num).toDouble() * (row['unit_price'] as num).toDouble();
       final parsed = PersianDateHelper.parse(date);
       if (type == 'فروش' || type == 'برگشت') {

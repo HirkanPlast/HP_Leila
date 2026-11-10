@@ -55,7 +55,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final createdBy = row['created_by'] as String?;
       final amount = (row['quantity'] as num).toDouble() * (row['unit_price'] as num).toDouble();
       final parsed = PersianDateHelper.parse(date);
-      if (type == 'فروش' || (type == 'برگشت' && createdBy == 'invoice_return')) {
+      if (type == 'فروش' || type == 'برگشت') {
         final salesAmount = type == 'برگشت' ? -amount : amount;
         lifetimeSales += salesAmount;
         allSalesDays[date] = (allSalesDays[date] ?? 0) + salesAmount;
@@ -132,8 +132,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
         const SizedBox(height: 16),
         _MetricCard(title: 'کل فروش تا امروز', value: _lifetimeSales),
         _MetricCard(title: 'کل خرید تا امروز', value: _lifetimePurchases),
-        _MetricCard(title: 'فروش سال $_year', value: _yearSales, subtitle: 'سال قبل: ${NumberFormatHelper.integer(_previousYearSales)} ریال'),
-        _MetricCard(title: 'فروش ${PersianDateHelper.monthName(_month)} $_year', value: _monthSales, subtitle: 'ماه قبل: ${NumberFormatHelper.integer(_previousMonthSales)} ریال'),
+        _MetricCard(title: 'فروش سال $_year', value: _yearSales, subtitle: 'سال قبل: ${NumberFormatHelper.integer(_previousYearSales / 10)} تومان'),
+        _MetricCard(title: 'فروش ${PersianDateHelper.monthName(_month)} $_year', value: _monthSales, subtitle: 'ماه قبل: ${NumberFormatHelper.integer(_previousMonthSales / 10)} تومان'),
         _MetricCard(title: 'پرفروش‌ترین روز ثبت‌شده', value: _bestDaySales, subtitle: _bestDay ?? 'هنوز فروشی ثبت نشده است'),
         const SizedBox(height: 12),
         _BarsCard(title: 'فروش ماهانه در سال $_year', entries: _monthly),
@@ -144,7 +144,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           const SizedBox(height: 8),
           Text(_selectedMonthIsFuture ? 'ماه انتخاب‌شده هنوز نرسیده است.' : (_noSalesDays.isEmpty ? 'برای این ماه روز بدون فروش ثبت‌شده‌ای وجود ندارد.' : _noSalesDays.join('، '))),
         ]))),
-        const Padding(padding: EdgeInsets.only(top: 8), child: Text('توجه: مبلغ خرید بر اساس تراکنش‌های «ورود» و مبلغ فروش پس از کسر برگشت کامل فاکتورهای ثبت‌شده محاسبه می‌شود. این گزارش سود حسابداری را محاسبه نمی‌کند.')),
+        const Padding(padding: EdgeInsets.only(top: 8), child: Text('توجه: مبلغ خرید بر اساس تراکنش‌های «ورود» و مبلغ فروش پس از کسر همهٔ تراکنش‌های برگشت ثبت‌شده محاسبه می‌شود. این گزارش سود حسابداری را محاسبه نمی‌کند.')),
       ],
     ),
   );
@@ -165,7 +165,7 @@ class _MetricCard extends StatelessWidget {
   Widget build(BuildContext context) => Card(child: ListTile(
     title: Text(title),
     subtitle: subtitle == null ? null : Text(subtitle!),
-    trailing: Text('${NumberFormatHelper.integer(value)} ریال', style: const TextStyle(fontWeight: FontWeight.bold)),
+    trailing: Text('${NumberFormatHelper.integer(value / 10)} تومان', style: const TextStyle(fontWeight: FontWeight.bold)),
   ));
 }
 
@@ -190,7 +190,7 @@ class _BarsCard extends StatelessWidget {
               value: maxValue <= 0 ? 0 : e.value / maxValue, minHeight: 12,
             ))),
             const SizedBox(width: 8),
-            SizedBox(width: 72, child: Text(NumberFormatHelper.integer(e.value), textAlign: TextAlign.end)),
+            SizedBox(width: 72, child: Text(NumberFormatHelper.integer(e.value / 10), textAlign: TextAlign.end)),
           ]),
         )),
       ],

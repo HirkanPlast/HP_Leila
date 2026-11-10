@@ -1,8 +1,8 @@
-name: Build APK
+name: HPLeila CI and APK
 
 on:
   push:
-    branches: [ main, feature/hpleila-full-feature-parity ]
+    branches: ["**"]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -11,9 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  verify-and-build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,7 +30,17 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Configure persistent release signing
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze Dart source
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Configure persistent release signing when available
+        id: signing
         env:
           KEYSTORE_BASE64: ${{ secrets.HPLEILA_KEYSTORE_BASE64 }}
           KEY_ALIAS: ${{ secrets.HPLEILA_KEY_ALIAS }}
@@ -40,27 +49,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${KEYSTORE_BASE64}" || -z "${KEY_ALIAS}" || -z "${KEY_PASSWORD}" || -z "${STORE_PASSWORD}" ]]; then
-            echo "::error::Release signing is not configured. Add the four HPLeila signing secrets to repository settings; refusing to create an APK signed with a temporary debug key."
-            exit 1
-          fi
-          printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > android/app/hpleila-release.jks
-          cat > android/key.properties <<EOF
+          if [[ -n "${KEYSTORE_BASE64}" && -n "${KEY_ALIAS}" && -n "${KEY_PASSWORD}" && -n "${STORE_PASSWORD}" ]]; then
+            printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > android/app/hpleila-release.jks
+            cat > android/key.properties <<EOF
           storeFile=hpleila-release.jks
           storePassword=${STORE_PASSWORD}
           keyAlias=${KEY_ALIAS}
           keyPassword=${KEY_PASSWORD}
           EOF
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Persistent signing secrets are not configured. A debug APK will be uploaded for testing only; it cannot update an installation signed with another key."
+          fi
 
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Build release APK
+      - name: Build signed release APK
+        if: steps.signing.outputs.configured == 'true'
         run: flutter build apk --release
 
-      - name: Upload APK
+      - name: Upload signed release APK
+        if: steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
+          name: hpleila-signed-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Build debug APK for functional testing
+        if: steps.signing.outputs.configured != 'true'
+        run: flutter build apk --debug
+
+      - name: Upload debug APK (not for in-place upgrade)
+        if: steps.signing.outputs.configured != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hpleila-debug-test-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

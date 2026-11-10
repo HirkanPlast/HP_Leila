@@ -410,7 +410,6 @@ class DatabaseHelper {
         }
         if (requested <= 0.0000001) continue;
         final lineTotal = (item['line_total'] as num).toDouble();
-        final originalUnitPrice = (item['unit_price'] as num).toDouble();
         final netUnitPrice = originalQuantity == 0 ? 0.0 : lineTotal / originalQuantity;
         final returnNote = 'برگشت فاکتور $invoiceNumber - قلم $itemId';
         final transactionId = await txn.insert('transactions', {

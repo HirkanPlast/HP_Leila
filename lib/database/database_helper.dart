@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import '../models/product.dart';
 import '../models/transaction.dart';
 import '../models/expense.dart';
+import '../utils/invoice_return_calculator.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -401,14 +402,19 @@ class DatabaseHelper {
           [itemId],
         );
         final alreadyReturned = (returnedRows.first['returned'] as num).toDouble();
-        final remaining = (originalQuantity - alreadyReturned).clamp(0.0, originalQuantity).toDouble();
+        final remaining = InvoiceReturnCalculator.remaining(
+          sold: originalQuantity,
+          returned: alreadyReturned,
+        );
         final requested = itemQuantities == null
             ? remaining
             : (itemQuantities[itemId] ?? 0.0);
-        if (requested < 0 || requested > remaining + 0.0000001) {
-          throw StateError('مقدار برگشت از مقدار باقی‌ماندهٔ کالا بیشتر است.');
-        }
-        if (requested <= 0.0000001) continue;
+        if (requested == 0) continue;
+        final validatedQuantity = InvoiceReturnCalculator.validateRequest(
+          sold: originalQuantity,
+          returned: alreadyReturned,
+          requested: requested,
+        );
         final lineTotal = (item['line_total'] as num).toDouble();
         final netUnitPrice = originalQuantity == 0 ? 0.0 : lineTotal / originalQuantity;
         final returnNote = 'برگشت فاکتور $invoiceNumber - قلم $itemId';
@@ -416,7 +422,7 @@ class DatabaseHelper {
           'date': date,
           'type': 'برگشت',
           'product_code': item['product_code'],
-          'quantity': requested,
+          'quantity': validatedQuantity,
           'unit_price': netUnitPrice,
           'notes': returnNote,
           'created_by': 'invoice_return',

@@ -45,10 +45,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // All stored amounts are Rial. Dashboard also shows the Toman equivalent.
-  String _money(double value) {
-    return '${_formatNumber(value)} ریال\n${_formatNumber(value / 10)} تومان';
-  }
+  // Stored amounts remain Rial; dashboard displays reports in Toman only.
+  String _money(double value) => '${_formatNumber(value / 10)} تومان';
 
   @override
   Widget build(BuildContext context) {

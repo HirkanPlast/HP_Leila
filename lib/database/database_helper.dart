@@ -360,7 +360,7 @@ class DatabaseHelper {
         [itemId],
       );
       final returned = (rows.first['returned'] as num).toDouble();
-      result[itemId] = (quantity - returned).clamp(0.0, quantity);
+      result[itemId] = (quantity - returned).clamp(0.0, quantity).toDouble();
     }
     return result;
   }
@@ -401,7 +401,7 @@ class DatabaseHelper {
           [itemId],
         );
         final alreadyReturned = (returnedRows.first['returned'] as num).toDouble();
-        final remaining = (originalQuantity - alreadyReturned).clamp(0.0, originalQuantity);
+        final remaining = (originalQuantity - alreadyReturned).clamp(0.0, originalQuantity).toDouble();
         final requested = itemQuantities == null
             ? remaining
             : (itemQuantities[itemId] ?? 0.0);

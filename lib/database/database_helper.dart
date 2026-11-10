@@ -21,7 +21,7 @@ class DatabaseHelper {
     final path = join(dbPath, fileName);
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -76,10 +76,12 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_trans_type ON transactions(type)');
     await db.execute('CREATE INDEX idx_exp_date ON expenses(date)');
     await _createInvoiceTables(db);
+    await _createInvoiceReturnTables(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) await _createInvoiceTables(db);
+    if (oldVersion < 3) await _createInvoiceReturnTables(db);
   }
 
   Future<void> _createInvoiceTables(DatabaseExecutor db) async {
@@ -112,6 +114,27 @@ class DatabaseHelper {
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_invoice_date ON invoices(date)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id)');
+  }
+
+
+  Future<void> _createInvoiceReturnTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS invoice_return_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_id INTEGER NOT NULL,
+        invoice_item_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit_price REAL NOT NULL,
+        transaction_id INTEGER NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE,
+        FOREIGN KEY (invoice_item_id) REFERENCES invoice_items (id) ON DELETE CASCADE,
+        FOREIGN KEY (transaction_id) REFERENCES transactions (id)
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_invoice_return_invoice ON invoice_return_items(invoice_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_invoice_return_item ON invoice_return_items(invoice_item_id)');
   }
 
   // ========== PRODUCTS ==========
@@ -312,64 +335,107 @@ class DatabaseHelper {
     });
   }
 
-  /// Whether a full return has already been recorded for this invoice.
-  Future<bool> hasInvoiceReturn(int invoiceId) async {
-    final invoice = await getInvoice(invoiceId);
-    if (invoice == null) return false;
+  /// Remaining quantity by invoice-item id. Legacy full-return records are
+  /// recognized so upgrading an existing installation never re-opens a returned invoice.
+  Future<Map<int, double>> getInvoiceReturnStatus(int invoiceId) async {
     final db = await database;
-    final rows = await db.query(
-      'transactions',
-      columns: ['id'],
+    final invoiceRows = await db.query('invoices', where: 'id = ?', whereArgs: [invoiceId], limit: 1);
+    if (invoiceRows.isEmpty) return {};
+    final invoiceNumber = invoiceRows.first['invoice_number'] as String;
+    final legacy = await db.query(
+      'transactions', columns: ['id'],
       where: "created_by = ? AND notes = ?",
-      whereArgs: ['invoice_return', 'برگشت کامل فاکتور ${invoice['invoice_number']}'],
-      limit: 1,
+      whereArgs: ['invoice_return', 'برگشت کامل فاکتور $invoiceNumber'], limit: 1,
     );
-    return rows.isNotEmpty;
+    final items = await db.query('invoice_items', where: 'invoice_id = ?', whereArgs: [invoiceId]);
+    final result = <int, double>{};
+    for (final item in items) {
+      final itemId = item['id'] as int;
+      final quantity = (item['quantity'] as num).toDouble();
+      if (legacy.isNotEmpty) {
+        result[itemId] = 0;
+        continue;
+      }
+      final rows = await db.rawQuery(
+        'SELECT COALESCE(SUM(quantity), 0) AS returned FROM invoice_return_items WHERE invoice_item_id = ?',
+        [itemId],
+      );
+      final returned = (rows.first['returned'] as num).toDouble();
+      result[itemId] = (quantity - returned).clamp(0.0, quantity);
+    }
+    return result;
   }
 
-  /// Record a full return without deleting or changing the original invoice.
-  /// The operation is atomic and can only be recorded once per invoice.
-  Future<void> returnInvoice(int invoiceId, {required String date}) async {
+  Future<bool> hasInvoiceReturn(int invoiceId) async {
+    final remaining = await getInvoiceReturnStatus(invoiceId);
+    return remaining.isNotEmpty && remaining.values.every((value) => value <= 0.0000001);
+  }
+
+  /// Atomically records full or partial quantities. Keys are invoice_item ids.
+  /// Omitted itemQuantities means return every remaining item quantity.
+  Future<void> returnInvoice(
+    int invoiceId, {
+    required String date,
+    Map<int, double>? itemQuantities,
+  }) async {
     final db = await database;
     await db.transaction((txn) async {
-      final invoiceRows = await txn.query(
-        'invoices', where: 'id = ?', whereArgs: [invoiceId], limit: 1,
-      );
+      final invoiceRows = await txn.query('invoices', where: 'id = ?', whereArgs: [invoiceId], limit: 1);
       if (invoiceRows.isEmpty) throw StateError('فاکتور پیدا نشد.');
-      final invoice = invoiceRows.first;
-      final invoiceNumber = invoice['invoice_number'] as String;
-      final returnNote = 'برگشت کامل فاکتور $invoiceNumber';
-      final existing = await txn.query(
-        'transactions',
-        columns: ['id'],
+      final invoiceNumber = invoiceRows.first['invoice_number'] as String;
+      final legacyNote = 'برگشت کامل فاکتور $invoiceNumber';
+      final legacy = await txn.query(
+        'transactions', columns: ['id'],
         where: "created_by = ? AND notes = ?",
-        whereArgs: ['invoice_return', returnNote],
-        limit: 1,
+        whereArgs: ['invoice_return', legacyNote], limit: 1,
       );
-      if (existing.isNotEmpty) throw StateError('برای این فاکتور قبلاً برگشت کامل ثبت شده است.');
-      final items = await txn.query(
-        'invoice_items', where: 'invoice_id = ?', whereArgs: [invoiceId],
-        orderBy: 'id ASC',
-      );
+      if (legacy.isNotEmpty) throw StateError('تمام اقلام این فاکتور قبلاً برگشت شده‌اند.');
+      final items = await txn.query('invoice_items', where: 'invoice_id = ?', whereArgs: [invoiceId], orderBy: 'id ASC');
       if (items.isEmpty) throw StateError('اقلام فاکتور پیدا نشدند.');
-      final subtotal = (invoice['subtotal'] as num).toDouble();
-      final discount = (invoice['discount'] as num).toDouble();
       final now = DateTime.now().toIso8601String();
+      var inserted = 0;
       for (final item in items) {
-        final quantity = (item['quantity'] as num).toDouble();
+        final itemId = item['id'] as int;
+        final originalQuantity = (item['quantity'] as num).toDouble();
+        final returnedRows = await txn.rawQuery(
+          'SELECT COALESCE(SUM(quantity), 0) AS returned FROM invoice_return_items WHERE invoice_item_id = ?',
+          [itemId],
+        );
+        final alreadyReturned = (returnedRows.first['returned'] as num).toDouble();
+        final remaining = (originalQuantity - alreadyReturned).clamp(0.0, originalQuantity);
+        final requested = itemQuantities == null
+            ? remaining
+            : (itemQuantities[itemId] ?? 0.0);
+        if (requested < 0 || requested > remaining + 0.0000001) {
+          throw StateError('مقدار برگشت از مقدار باقی‌ماندهٔ کالا بیشتر است.');
+        }
+        if (requested <= 0.0000001) continue;
         final lineTotal = (item['line_total'] as num).toDouble();
-        final allocatedDiscount = subtotal == 0 ? 0.0 : discount * lineTotal / subtotal;
-        await txn.insert('transactions', {
+        final originalUnitPrice = (item['unit_price'] as num).toDouble();
+        final netUnitPrice = originalQuantity == 0 ? 0.0 : lineTotal / originalQuantity;
+        final returnNote = 'برگشت فاکتور $invoiceNumber - قلم $itemId';
+        final transactionId = await txn.insert('transactions', {
           'date': date,
           'type': 'برگشت',
           'product_code': item['product_code'],
-          'quantity': quantity,
-          'unit_price': quantity == 0 ? 0.0 : (lineTotal - allocatedDiscount) / quantity,
+          'quantity': requested,
+          'unit_price': netUnitPrice,
           'notes': returnNote,
           'created_by': 'invoice_return',
           'created_at': now,
         });
+        await txn.insert('invoice_return_items', {
+          'invoice_id': invoiceId,
+          'invoice_item_id': itemId,
+          'date': date,
+          'quantity': requested,
+          'unit_price': netUnitPrice,
+          'transaction_id': transactionId,
+          'created_at': now,
+        });
+        inserted++;
       }
+      if (inserted == 0) throw StateError('مقدار برگشت را برای حداقل یک قلم وارد کنید.');
     });
   }
 
@@ -567,6 +633,7 @@ class DatabaseHelper {
           throw Exception('کد کالای ناموجود: $code');
         }
       }
+      await txn.delete('invoice_return_items');
       await txn.delete('invoice_items');
       await txn.delete('invoices');
       await txn.delete('transactions');
@@ -613,6 +680,7 @@ class DatabaseHelper {
     final db = await database;
     await db.transaction((txn) async {
       if (clearFirst) {
+        await txn.delete('invoice_return_items');
         await txn.delete('invoice_items');
         await txn.delete('invoices');
         await txn.delete('transactions');

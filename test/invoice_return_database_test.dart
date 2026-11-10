@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:hps/database/database_helper.dart';
@@ -15,7 +16,7 @@ void main() {
 
   setUp(() async {
     await DatabaseHelper.instance.close();
-    await deleteDatabase('hps.db');
+    await deleteDatabase(path.join(await getDatabasesPath(), 'hps.db'));
   });
 
   tearDown(() async {

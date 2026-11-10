@@ -480,18 +480,18 @@ class DatabaseHelper {
 
     // Sales today
     final salesToday = await db.rawQuery('''
-      SELECT COALESCE(SUM(CASE WHEN type = 'فروش' THEN quantity * unit_price WHEN type = 'برگشت' AND created_by = 'invoice_return' THEN -quantity * unit_price ELSE 0 END), 0) as total,
-             COALESCE(SUM(CASE WHEN type = 'فروش' THEN quantity WHEN type = 'برگشت' AND created_by = 'invoice_return' THEN -quantity ELSE 0 END), 0) as qty
+      SELECT COALESCE(SUM(CASE WHEN type = 'فروش' THEN quantity * unit_price WHEN type = 'برگشت' THEN -quantity * unit_price ELSE 0 END), 0) as total,
+             COALESCE(SUM(CASE WHEN type = 'فروش' THEN quantity WHEN type = 'برگشت' THEN -quantity ELSE 0 END), 0) as qty
       FROM transactions
-      WHERE (type = 'فروش' OR (type = 'برگشت' AND created_by = 'invoice_return')) AND date = ?
+      WHERE type IN ('فروش', 'برگشت') AND date = ?
     ''', [today]);
 
     // Sales this month
     final salesMonth = await db.rawQuery('''
-      SELECT COALESCE(SUM(CASE WHEN type = 'فروش' THEN quantity * unit_price WHEN type = 'برگشت' AND created_by = 'invoice_return' THEN -quantity * unit_price ELSE 0 END), 0) as total,
-             COALESCE(SUM(CASE WHEN type = 'فروش' THEN quantity WHEN type = 'برگشت' AND created_by = 'invoice_return' THEN -quantity ELSE 0 END), 0) as qty
+      SELECT COALESCE(SUM(CASE WHEN type = 'فروش' THEN quantity * unit_price WHEN type = 'برگشت' THEN -quantity * unit_price ELSE 0 END), 0) as total,
+             COALESCE(SUM(CASE WHEN type = 'فروش' THEN quantity WHEN type = 'برگشت' THEN -quantity ELSE 0 END), 0) as qty
       FROM transactions
-      WHERE (type = 'فروش' OR (type = 'برگشت' AND created_by = 'invoice_return')) AND date >= ? AND date <= ?
+      WHERE type IN ('فروش', 'برگشت') AND date >= ? AND date <= ?
     ''', [monthStart, today]);
 
     // Expenses this month
@@ -521,10 +521,10 @@ class DatabaseHelper {
     // COGS approximation this month (using current buy price)
     // Better would be FIFO, but for v1 we use average
     final cogsMonth = await db.rawQuery('''
-      SELECT COALESCE(SUM(CASE WHEN t.type = 'فروش' THEN t.quantity * p.buy_price WHEN t.type = 'برگشت' AND t.created_by = 'invoice_return' THEN -t.quantity * p.buy_price ELSE 0 END), 0) as total
+      SELECT COALESCE(SUM(CASE WHEN t.type = 'فروش' THEN t.quantity * p.buy_price WHEN t.type = 'برگشت' THEN -t.quantity * p.buy_price ELSE 0 END), 0) as total
       FROM transactions t
       JOIN products p ON t.product_code = p.code
-      WHERE (t.type = 'فروش' OR (t.type = 'برگشت' AND t.created_by = 'invoice_return')) AND t.date >= ? AND t.date <= ?
+      WHERE t.type IN ('فروش', 'برگشت') AND t.date >= ? AND t.date <= ?
     ''', [monthStart, today]);
 
     final salesTotal = (salesMonth.first['total'] as num).toDouble();

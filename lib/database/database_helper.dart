@@ -126,11 +126,10 @@ class DatabaseHelper {
         date TEXT NOT NULL,
         quantity REAL NOT NULL,
         unit_price REAL NOT NULL,
-        transaction_id INTEGER NOT NULL UNIQUE,
+        transaction_id INTEGER,
         created_at TEXT NOT NULL,
         FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE,
-        FOREIGN KEY (invoice_item_id) REFERENCES invoice_items (id) ON DELETE CASCADE,
-        FOREIGN KEY (transaction_id) REFERENCES transactions (id)
+        FOREIGN KEY (invoice_item_id) REFERENCES invoice_items (id) ON DELETE CASCADE
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_invoice_return_invoice ON invoice_return_items(invoice_id)');
@@ -658,6 +657,8 @@ class DatabaseHelper {
     final transactions = await getTransactions(limit: 100000);
     final expenses = await getExpenses();
     final invoiceRows = await getInvoices(limit: 100000);
+    final db = await database;
+    final returnItems = await db.query('invoice_return_items');
     final invoices = <Map<String, dynamic>>[];
     for (final invoice in invoiceRows) {
       final record = Map<String, dynamic>.from(invoice);
@@ -672,6 +673,7 @@ class DatabaseHelper {
       'transactions': transactions.map((t) => t.toMap()).toList(),
       'expenses': expenses.map((e) => e.toMap()).toList(),
       'invoices': invoices,
+      'invoice_return_items': returnItems,
     };
   }
 
@@ -707,20 +709,39 @@ class DatabaseHelper {
         await txn.insert('expenses', map);
       }
 
+      final invoiceIdMap = <int, int>{};
+      final invoiceItemIdMap = <int, int>{};
       final invoices = data['invoices'] as List? ?? [];
       for (final invoiceData in invoices) {
         final invoice = Map<String, dynamic>.from(invoiceData);
         final items = invoice['items'] as List? ?? [];
         invoice.remove('items');
-        invoice.remove('id');
+        final oldInvoiceId = invoice.remove('id') as int?;
         final invoiceId = await txn.insert('invoices', invoice, conflictAlgorithm: ConflictAlgorithm.replace);
+        if (oldInvoiceId != null) invoiceIdMap[oldInvoiceId] = invoiceId;
         for (final itemData in items) {
           final item = Map<String, dynamic>.from(itemData);
-          item.remove('id');
+          final oldItemId = item.remove('id') as int?;
           item.remove('invoice_id');
           item['invoice_id'] = invoiceId;
-          await txn.insert('invoice_items', item);
+          final newItemId = await txn.insert('invoice_items', item);
+          if (oldItemId != null) invoiceItemIdMap[oldItemId] = newItemId;
         }
+      }
+      final savedReturns = data['invoice_return_items'] as List? ?? [];
+      for (final returnData in savedReturns) {
+        final record = Map<String, dynamic>.from(returnData);
+        final oldInvoiceId = record.remove('invoice_id') as int?;
+        final oldItemId = record.remove('invoice_item_id') as int?;
+        record.remove('id');
+        record.remove('transaction_id');
+        final newInvoiceId = oldInvoiceId == null ? null : invoiceIdMap[oldInvoiceId];
+        final newItemId = oldItemId == null ? null : invoiceItemIdMap[oldItemId];
+        if (newInvoiceId == null || newItemId == null) continue;
+        record['invoice_id'] = newInvoiceId;
+        record['invoice_item_id'] = newItemId;
+        record['transaction_id'] = null;
+        await txn.insert('invoice_return_items', record);
       }
     });
   }

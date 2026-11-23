@@ -1,7 +1,7 @@
 class AppConstants {
   static const String appName = 'HPLeila';
   static const String appNameEn = 'HPLeila';
-  static const String version = '1.9.4';
+  static const String version = '1.9.5';
 
   static const List<String> transactionTypes = [
     'ورود',

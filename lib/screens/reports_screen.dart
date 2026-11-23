@@ -21,6 +21,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   double _previousMonthSales = 0;
   double _previousYearSales = 0;
   double _bestDaySales = 0;
+  double _lifetimeCogs = 0, _monthCogs = 0, _yearCogs = 0, _bestDayCogs = 0;
+  Map<String, double> _dailyCogs = {}, _monthlyCogs = {}, _weekdayCogs = {};
   String? _bestDay;
   List<MapEntry<String, double>> _daily = [];
   List<MapEntry<String, double>> _monthly = [];
@@ -40,8 +42,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final db = await DatabaseHelper.instance.database;
-    final all = await db.rawQuery("SELECT date, type, quantity, unit_price, created_by FROM transactions WHERE type IN ('فروش','ورود','برگشت') ORDER BY date ASC");
+    final all = await db.rawQuery("""
+      SELECT t.date, t.type, t.quantity, t.unit_price, t.created_by,
+             COALESCE(p.buy_price, 0) AS buy_price
+      FROM transactions t
+      LEFT JOIN products p ON p.code = t.product_code
+      WHERE t.type IN ('فروش','ورود','برگشت')
+      ORDER BY t.date ASC
+    """);
     double lifetimeSales = 0, lifetimePurchases = 0, monthSales = 0, yearSales = 0;
+    double lifetimeCogs = 0, monthCogs = 0, yearCogs = 0, bestDayCogs = 0;
     double previousMonthSales = 0, previousYearSales = 0;
     final previousMonth = _month == 1 ? 12 : _month - 1;
     final previousMonthYear = _month == 1 ? _year - 1 : _year;
@@ -49,6 +59,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final monthlyMap = <int, double>{};
     final weekdayMap = <int, double>{};
     final allSalesDays = <String, double>{};
+    final allSalesDayCogs = <String, double>{};
+    final dailyCogs = <int, double>{};
+    final monthlyCogs = <int, double>{};
+    final weekdayCogs = <int, double>{};
     for (final row in all) {
       final date = row['date'] as String;
       final type = row['type'] as String;
@@ -57,19 +71,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
       if (type == 'فروش' || type == 'برگشت') {
         final salesAmount = type == 'برگشت' ? -amount : amount;
         lifetimeSales += salesAmount;
+        final sign = type == 'برگشت' ? -1.0 : 1.0;
+        final buyPrice = (row['buy_price'] as num?)?.toDouble() ?? 0;
+        final cogs = sign * (row['quantity'] as num).toDouble() * buyPrice;
+        lifetimeCogs += cogs;
         allSalesDays[date] = (allSalesDays[date] ?? 0) + salesAmount;
+        allSalesDayCogs[date] = (allSalesDayCogs[date] ?? 0) + cogs;
         if (parsed != null) {
           if (parsed.year == _year) {
             yearSales += salesAmount;
+            yearCogs += cogs;
             monthlyMap[parsed.month] = (monthlyMap[parsed.month] ?? 0) + salesAmount;
+            monthlyCogs[parsed.month] = (monthlyCogs[parsed.month] ?? 0) + cogs;
           }
           if (parsed.year == _year - 1) previousYearSales += salesAmount;
           if (parsed.year == previousMonthYear && parsed.month == previousMonth) previousMonthSales += salesAmount;
           if (parsed.year == _year && parsed.month == _month) {
             monthSales += salesAmount;
+            monthCogs += cogs;
             dailyMap[parsed.day] = (dailyMap[parsed.day] ?? 0) + salesAmount;
+            dailyCogs[parsed.day] = (dailyCogs[parsed.day] ?? 0) + cogs;
             final weekday = parsed.toDateTime().weekday;
             weekdayMap[weekday] = (weekdayMap[weekday] ?? 0) + salesAmount;
+            weekdayCogs[weekday] = (weekdayCogs[weekday] ?? 0) + cogs;
           }
         }
       } else if (type == 'ورود') {
@@ -90,6 +114,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     const weekdayNames = {1:'دوشنبه',2:'سه‌شنبه',3:'چهارشنبه',4:'پنجشنبه',5:'جمعه',6:'شنبه',7:'یکشنبه'};
     final sortedWeekdays = weekdayMap.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
     final salesByDay = allSalesDays.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final bestDayKey = salesByDay.isEmpty ? null : salesByDay.first.key;
+    bestDayCogs = bestDayKey == null ? 0 : (allSalesDayCogs[bestDayKey] ?? 0);
+    final dailyCogsDisplay = {for (final e in dailyCogs.entries) '${e.key}': e.value};
+    const weekdayNamesForCogs = {1:'دوشنبه',2:'سه‌شنبه',3:'چهارشنبه',4:'پنجشنبه',5:'جمعه',6:'شنبه',7:'یکشنبه'};
+    final monthlyCogsDisplay = {for (final e in monthlyCogs.entries) PersianDateHelper.monthName(e.key): e.value};
+    final weekdayCogsDisplay = {for (final e in weekdayCogs.entries) weekdayNamesForCogs[e.key]!: e.value};
     if (!mounted) return;
     setState(() {
       _lifetimeSales = lifetimeSales;
@@ -100,6 +130,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _previousYearSales = previousYearSales;
       _bestDay = salesByDay.isEmpty ? null : salesByDay.first.key;
       _bestDaySales = salesByDay.isEmpty ? 0 : salesByDay.first.value;
+      _lifetimeCogs = lifetimeCogs;
+      _monthCogs = monthCogs;
+      _yearCogs = yearCogs;
+      _bestDayCogs = bestDayCogs;
+      _dailyCogs = dailyCogsDisplay;
+      _monthlyCogs = monthlyCogsDisplay;
+      _weekdayCogs = weekdayCogsDisplay;
       _daily = sortedDays.map((e) => MapEntry('${e.key}', e.value)).toList();
       _monthly = sortedMonths.map((e) => MapEntry(PersianDateHelper.monthName(e.key), e.value)).toList();
       _weekdays = sortedWeekdays.map((e) => MapEntry(weekdayNames[e.key]!, e.value)).toList();
@@ -129,21 +166,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
           )),
         ]),
         const SizedBox(height: 16),
-        _MetricCard(title: 'کل فروش تا امروز', value: _lifetimeSales),
+        _MetricCard(title: 'کل فروش تا امروز', value: _lifetimeSales, marginPercent: _margin(_lifetimeSales, _lifetimeCogs)),
         _MetricCard(title: 'کل خرید تا امروز', value: _lifetimePurchases),
-        _MetricCard(title: 'فروش سال $_year', value: _yearSales, subtitle: 'سال قبل: ${NumberFormatHelper.integer(_previousYearSales / 10)} تومان'),
-        _MetricCard(title: 'فروش ${PersianDateHelper.monthName(_month)} $_year', value: _monthSales, subtitle: 'ماه قبل: ${NumberFormatHelper.integer(_previousMonthSales / 10)} تومان'),
-        _MetricCard(title: 'پرفروش‌ترین روز ثبت‌شده', value: _bestDaySales, subtitle: _bestDay ?? 'هنوز فروشی ثبت نشده است'),
+        _MetricCard(title: 'فروش سال $_year', value: _yearSales, marginPercent: _margin(_yearSales, _yearCogs), subtitle: 'سال قبل: ${NumberFormatHelper.integer(_previousYearSales / 10)} تومان'),
+        _MetricCard(title: 'فروش ${PersianDateHelper.monthName(_month)} $_year', value: _monthSales, marginPercent: _margin(_monthSales, _monthCogs), subtitle: 'ماه قبل: ${NumberFormatHelper.integer(_previousMonthSales / 10)} تومان'),
+        _MetricCard(title: 'پرفروش‌ترین روز ثبت‌شده', value: _bestDaySales, marginPercent: _margin(_bestDaySales, _bestDayCogs), subtitle: _bestDay ?? 'هنوز فروشی ثبت نشده است'),
         const SizedBox(height: 12),
-        _BarsCard(title: 'فروش ماهانه در سال $_year', entries: _monthly),
-        _BarsCard(title: 'فروش روزانه در ماه انتخاب‌شده', entries: _daily),
-        _BarsCard(title: 'فروش به تفکیک روز هفته', entries: _weekdays),
+        _BarsCard(title: 'فروش ماهانه در سال $_year', entries: _monthly, cogs: _monthlyCogs),
+        _BarsCard(title: 'فروش روزانه در ماه انتخاب‌شده', entries: _daily, cogs: _dailyCogs),
+        _BarsCard(title: 'فروش به تفکیک روز هفته', entries: _weekdays, cogs: _weekdayCogs),
         Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('روزهای بدون فروش در ${PersianDateHelper.monthName(_month)}', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           Text(_selectedMonthIsFuture ? 'ماه انتخاب‌شده هنوز نرسیده است.' : (_noSalesDays.isEmpty ? 'برای این ماه روز بدون فروش ثبت‌شده‌ای وجود ندارد.' : _noSalesDays.join('، '))),
         ]))),
-        const Padding(padding: EdgeInsets.only(top: 8), child: Text('توجه: مبلغ خرید بر اساس تراکنش‌های «ورود» و مبلغ فروش پس از کسر همهٔ تراکنش‌های برگشت ثبت‌شده محاسبه می‌شود. این گزارش سود حسابداری را محاسبه نمی‌کند.')),
+        const Padding(padding: EdgeInsets.only(top: 8), child: Text('توجه: فروش خالص پس از کسر برگشت‌ها محاسبه می‌شود. حاشیه سود ناخالص بر پایه قیمت خرید فعلی کالا برآورد شده و FIFO تاریخی یا سود حسابداری قطعی نیست.')),
       ],
     ),
   );
@@ -155,15 +192,28 @@ class JalaliMonthDays {
   }
 }
 
+double? _margin(double sales, double cogs) => sales <= 0 ? null : ((sales - cogs) / sales) * 100;
+
 class _MetricCard extends StatelessWidget {
   final String title;
   final double value;
   final String? subtitle;
-  const _MetricCard({required this.title, required this.value, this.subtitle});
+  final double? marginPercent;
+  const _MetricCard({required this.title, required this.value, this.subtitle, this.marginPercent});
   @override
   Widget build(BuildContext context) => Card(child: ListTile(
     title: Text(title),
-    subtitle: subtitle == null ? null : Text(subtitle!),
+    subtitle: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (subtitle != null) Text(subtitle!),
+        if (marginPercent != null) Text(
+          'حاشیه سود ناخالص: ${NumberFormatHelper.grouped(marginPercent!, decimals: 1)}٪',
+          style: TextStyle(fontSize: 11, color: marginPercent! >= 0 ? Colors.green.shade700 : Colors.red, fontWeight: FontWeight.w600),
+        ),
+      ],
+    ),
     trailing: Text('${NumberFormatHelper.integer(value / 10)} تومان', style: const TextStyle(fontWeight: FontWeight.bold)),
   ));
 }
@@ -171,7 +221,8 @@ class _MetricCard extends StatelessWidget {
 class _BarsCard extends StatelessWidget {
   final String title;
   final List<MapEntry<String, double>> entries;
-  const _BarsCard({required this.title, required this.entries});
+  final Map<String, double> cogs;
+  const _BarsCard({required this.title, required this.entries, this.cogs = const {}});
   @override
   Widget build(BuildContext context) {
     final maxValue = entries.fold<double>(0, (max, e) => e.value > max ? e.value : max);
@@ -189,7 +240,20 @@ class _BarsCard extends StatelessWidget {
               value: maxValue <= 0 ? 0 : e.value / maxValue, minHeight: 12,
             ))),
             const SizedBox(width: 8),
-            SizedBox(width: 72, child: Text(NumberFormatHelper.integer(e.value / 10), textAlign: TextAlign.end)),
+            SizedBox(
+              width: 100,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(NumberFormatHelper.integer(e.value / 10), textAlign: TextAlign.end),
+                  if (_margin(e.value, cogs[e.key] ?? 0) != null)
+                    Text(
+                      '${NumberFormatHelper.grouped(_margin(e.value, cogs[e.key] ?? 0)!, decimals: 1)}٪ سود',
+                      style: TextStyle(fontSize: 10, color: _margin(e.value, cogs[e.key] ?? 0)! >= 0 ? Colors.green.shade700 : Colors.red),
+                    ),
+                ],
+              ),
+            ),
           ]),
         )),
       ],

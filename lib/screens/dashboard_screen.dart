@@ -5,6 +5,7 @@ import '../database/database_helper.dart';
 import '../utils/persian_date.dart';
 import '../utils/constants.dart';
 import '../utils/number_format.dart';
+import '../utils/gross_margin_calculator.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -50,8 +51,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   double? _profitPercent(dynamic profit, dynamic sales) {
     final revenue = (sales as num?)?.toDouble() ?? 0;
-    if (revenue <= 0) return null;
-    return (((profit as num?)?.toDouble() ?? 0) / revenue) * 100;
+    final grossProfit = (profit as num?)?.toDouble() ?? 0;
+    return GrossMarginCalculator.percentage(
+      netSales: revenue,
+      costOfGoodsSold: revenue - grossProfit,
+    );
   }
 
   @override

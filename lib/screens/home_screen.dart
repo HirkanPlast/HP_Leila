@@ -24,6 +24,68 @@ class _HomeScreenState extends State<HomeScreen> {
   late final List<Widget> _pages;
   late final List<BottomNavigationBarItem> _items;
 
+  // Distinct, moderately saturated page accents. Text colors remain theme-driven
+  // to preserve contrast in both light and dark modes.
+  static const List<Color> _pageAccents = [
+    Color(0xFF1976D2), // Dashboard: blue
+    Color(0xFF6554C0), // Transactions: violet
+    Color(0xFFB7791F), // Inventory: amber
+    Color(0xFFD65F4A), // Expenses: coral
+    Color(0xFF168C83), // Products: teal
+    Color(0xFF60758A), // Settings: slate
+  ];
+
+  ThemeData _themeForPage(BuildContext context, int index) {
+    final base = Theme.of(context);
+    final seed = _pageAccents[index.clamp(0, _pageAccents.length - 1)];
+    final scheme = ColorScheme.fromSeed(
+      seedColor: seed,
+      brightness: base.brightness,
+    );
+    return base.copyWith(
+      colorScheme: scheme,
+      primaryColor: scheme.primary,
+      appBarTheme: base.appBarTheme.copyWith(
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
+        iconTheme: IconThemeData(color: scheme.onSurface),
+        titleTextStyle: (base.textTheme.titleLarge ?? const TextStyle()).copyWith(
+          color: scheme.onSurface,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
+      ),
+      snackBarTheme: base.snackBarTheme.copyWith(
+        contentTextStyle: TextStyle(color: scheme.onInverseSurface),
+      ),
+    );
+  }
+
+  ThemeData _specialPageTheme(BuildContext context, Color seed) {
+    final base = Theme.of(context);
+    final scheme = ColorScheme.fromSeed(seedColor: seed, brightness: base.brightness);
+    return base.copyWith(
+      colorScheme: scheme,
+      primaryColor: scheme.primary,
+      appBarTheme: base.appBarTheme.copyWith(
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
+        iconTheme: IconThemeData(color: scheme.onSurface),
+        titleTextStyle: (base.textTheme.titleLarge ?? const TextStyle()).copyWith(
+          color: scheme.onSurface,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentScheme = _themeForPage(context, _currentIndex).colorScheme;
     return Scaffold(
       key: homeScaffoldKey,
       drawer: Drawer(
@@ -104,7 +167,12 @@ class _HomeScreenState extends State<HomeScreen> {
               title: const Text('فاکتورهای فروش'),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InvoicesScreen()));
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => Theme(
+                    data: _specialPageTheme(context, const Color(0xFF27965B)),
+                    child: const InvoicesScreen(),
+                  ),
+                ));
               },
             ),
             ListTile(
@@ -113,7 +181,12 @@ class _HomeScreenState extends State<HomeScreen> {
               subtitle: const Text('گزارش ماهانه، سالانه و مقایسه فروش'),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReportsScreen()));
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => Theme(
+                    data: _specialPageTheme(context, const Color(0xFF8B5CC7)),
+                    child: const ReportsScreen(),
+                  ),
+                ));
               },
             ),
             _drawerItem(context, widget.role == 'manager' ? 5 : 4, Icons.settings_outlined, 'تنظیمات'),
@@ -122,24 +195,40 @@ class _HomeScreenState extends State<HomeScreen> {
               title: const Text('راهنما و اطلاعات حقوقی'),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const HelpScreen()));
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => Theme(
+                    data: _specialPageTheme(context, const Color(0xFF278FAD)),
+                    child: const HelpScreen(),
+                  ),
+                ));
               },
             ),
           ],
         )),
       ),
       floatingActionButton: _currentIndex == 0 ? FloatingActionButton.extended(
-        onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InvoicesScreen())),
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => Theme(
+            data: _specialPageTheme(context, const Color(0xFF27965B)),
+            child: const InvoicesScreen(),
+          ),
+        )),
         icon: const Icon(Icons.receipt_long),
         label: const Text('فاکتور فروش'),
       ) : null,
-      body: IndexedStack(index: _currentIndex, children: _pages),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: List.generate(
+          _pages.length,
+          (index) => Theme(data: _themeForPage(context, index), child: _pages[index]),
+        ),
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (i) => setState(() => _currentIndex = i),
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: Theme.of(context).colorScheme.primary,
-        unselectedItemColor: Colors.grey,
+        selectedItemColor: currentScheme.primary,
+        unselectedItemColor: Theme.of(context).colorScheme.onSurfaceVariant,
         selectedFontSize: 12,
         unselectedFontSize: 11,
         items: _items,

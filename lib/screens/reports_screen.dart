@@ -3,6 +3,7 @@ import 'package:shamsi_date/shamsi_date.dart';
 import '../database/database_helper.dart';
 import '../utils/number_format.dart';
 import '../utils/persian_date.dart';
+import '../utils/gross_margin_calculator.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -192,7 +193,7 @@ class JalaliMonthDays {
   }
 }
 
-double? _margin(double sales, double cogs) => sales <= 0 ? null : ((sales - cogs) / sales) * 100;
+double? _margin(double sales, double cogs) => GrossMarginCalculator.percentage(netSales: sales, costOfGoodsSold: cogs);
 
 class _MetricCard extends StatelessWidget {
   final String title;

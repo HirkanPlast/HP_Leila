@@ -37,7 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   ThemeData _themeForPage(BuildContext context, int index) {
     final base = Theme.of(context);
-    final seed = _pageAccents[index.clamp(0, _pageAccents.length - 1)];
+    final seed = _pageAccents[index.clamp(0, _pageAccents.length - 1).toInt()];
     final scheme = ColorScheme.fromSeed(
       seedColor: seed,
       brightness: base.brightness,

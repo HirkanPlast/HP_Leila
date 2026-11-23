@@ -564,6 +564,18 @@ class DatabaseHelper {
       WHERE type IN ('فروش', 'برگشت') AND date >= ? AND date <= ?
     ''', [monthStart, today]);
 
+    // Cost of goods sold today, estimated with each product's current buy price.
+    final cogsToday = await db.rawQuery('''
+      SELECT COALESCE(SUM(
+        CASE WHEN t.type = 'فروش' THEN t.quantity * p.buy_price
+             WHEN t.type = 'برگشت' THEN -t.quantity * p.buy_price
+             ELSE 0 END
+      ), 0) AS total
+      FROM transactions t
+      JOIN products p ON t.product_code = p.code
+      WHERE t.type IN ('فروش', 'برگشت') AND t.date = ?
+    ''', [today]);
+
     // Expenses this month
     final expMonth = await db.rawQuery('''
       SELECT COALESCE(SUM(amount), 0) as total
@@ -597,6 +609,9 @@ class DatabaseHelper {
       WHERE t.type IN ('فروش', 'برگشت') AND t.date >= ? AND t.date <= ?
     ''', [monthStart, today]);
 
+    final salesTodayTotal = (salesToday.first['total'] as num).toDouble();
+    final cogsTodayTotal = (cogsToday.first['total'] as num).toDouble();
+    final grossProfitToday = salesTodayTotal - cogsTodayTotal;
     final salesTotal = (salesMonth.first['total'] as num).toDouble();
     final cogs = (cogsMonth.first['total'] as num).toDouble();
     final expenses = (expMonth.first['total'] as num).toDouble();
@@ -604,7 +619,8 @@ class DatabaseHelper {
     final netProfit = grossProfit - expenses;
 
     return {
-      'sales_today': (salesToday.first['total'] as num).toDouble(),
+      'sales_today': salesTodayTotal,
+      'gross_profit_today': grossProfitToday,
       'sales_today_qty': (salesToday.first['qty'] as num).toDouble(),
       'sales_month': salesTotal,
       'sales_month_qty': (salesMonth.first['qty'] as num).toDouble(),

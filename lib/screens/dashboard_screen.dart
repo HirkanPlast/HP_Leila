@@ -48,6 +48,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Stored amounts remain Rial; dashboard displays reports in Toman only.
   String _money(double value) => '${_formatNumber(value / 10)} تومان';
 
+  double? _profitPercent(dynamic profit, dynamic sales) {
+    final revenue = (sales as num?)?.toDouble() ?? 0;
+    if (revenue <= 0) return null;
+    return (((profit as num?)?.toDouble() ?? 0) / revenue) * 100;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -76,15 +82,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   // Header
-                  Text(
-                    'فروشگاه هیرکان پلاست',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF1769D2), Color(0xFF0B47A1)],
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'فروشگاه هیرکان پلاست',
+                          style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
                         ),
-                  ),
-                  Text(
-                    'امروز: ${PersianDateHelper.today()}',
-                    style: TextStyle(color: Colors.grey[600]),
+                        const SizedBox(height: 5),
+                        Text(
+                          'امروز: ${PersianDateHelper.today()}',
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                        const SizedBox(height: 12),
+                        const Row(
+                          children: [
+                            Icon(Icons.insights, color: Colors.white70, size: 18),
+                            SizedBox(width: 6),
+                            Text('نمای کلی عملکرد فروشگاه', style: TextStyle(color: Colors.white, fontSize: 12)),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 20),
 
@@ -96,6 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           title: 'فروش امروز',
                           value: _money(_stats!['sales_today'] ?? 0),
                           subtitle: '${_stats!['sales_today_qty']?.toStringAsFixed(0) ?? 0} قلم',
+                          profitPercent: _profitPercent(_stats!['gross_profit_today'], _stats!['sales_today']),
                           color: Colors.green,
                           icon: Icons.today,
                         ),
@@ -106,6 +136,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           title: 'فروش ماه',
                           value: _money(_stats!['sales_month'] ?? 0),
                           subtitle: '${_stats!['sales_month_qty']?.toStringAsFixed(0) ?? 0} قلم',
+                          profitPercent: _profitPercent(_stats!['gross_profit_month'], _stats!['sales_month']),
                           color: Colors.blue,
                           icon: Icons.calendar_month,
                         ),
@@ -225,6 +256,7 @@ class _StatCard extends StatelessWidget {
   final String title;
   final String value;
   final String? subtitle;
+  final double? profitPercent;
   final Color color;
   final IconData icon;
   final bool fullWidth;
@@ -233,6 +265,7 @@ class _StatCard extends StatelessWidget {
     required this.title,
     required this.value,
     this.subtitle,
+    this.profitPercent,
     required this.color,
     required this.icon,
     this.fullWidth = false,
@@ -268,6 +301,35 @@ class _StatCard extends StatelessWidget {
                 color: color,
               ),
             ),
+            if (profitPercent != null) ...[
+              const SizedBox(height: 9),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: (profitPercent! >= 0 ? Colors.green : Colors.red).withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      profitPercent! >= 0 ? Icons.trending_up : Icons.trending_down,
+                      size: 15,
+                      color: profitPercent! >= 0 ? Colors.green.shade700 : Colors.red,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'حاشیه سود: ${NumberFormatHelper.grouped(profitPercent!, decimals: 1)}٪',
+                      style: TextStyle(
+                        color: profitPercent! >= 0 ? Colors.green.shade700 : Colors.red,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (subtitle != null) ...[
               const SizedBox(height: 4),
               Text(subtitle!, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
